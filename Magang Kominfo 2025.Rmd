@@ -1,0 +1,492 @@
+---
+title: "Magang Kominfo 2025"
+author: "Rezkihana Nur Fadhilah"
+date: "2025-01-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##K-Means manual
+```{r}
+library(readxl)
+library(tibble)
+library(ggplot2)
+library(factoextra)
+
+runnum <- read_excel("E:/magang/Kominfo/VARIABEL MAGANG.xlsx", sheet = "var_fix")
+datanum<-data.frame(runnum)
+rownames(datanum) <- datanum$Kabupaten.Kota
+datanum <- datanum[, -1]
+#View(datanum)
+
+# ===== STANDARISASI DATA =====
+data1 = scale(datanum)
+#View(data1)
+set.seed(123)
+#==================K-MEANS CLUSTER==========================
+#membentuk k means dengan k=5
+km_fit = kmeans(data1,centers = 5,iter.max = 300 )
+win.graph()
+fviz_cluster(km_fit, data = data1)
+new_data <- cbind(datanum,data.frame(km_fit$cluster))
+#===== PSEUDO - F =====
+
+icdrate = function(new_data, nc, c)
+{
+  n = dim(new_data)[1]
+  p = dim(new_data)[2]
+  X = new_data[,1:(p-1)]
+  Group = new_data [,p]
+  p = dim(X)[2]
+  Mean.X = matrix(ncol = p, nrow = (nc+1))
+  for (i in 1:nc)
+  {
+    for (j in 1:p)
+    {
+      Mean.X[i,j] = mean(X[which(Group==i),j])
+      Mean.X[(nc+1),j] = mean(X[,j])
+    }
+  }
+  SST = matrix(ncol=p, nrow=n)
+  for (i in 1:n)
+  {
+    for (j in 1:p)
+    {
+      SST[i,j] = (X[i,j] - Mean.X[(nc+1),j])^2
+    }
+  }
+  SST = sum(sum(SST))
+  SSE = matrix(ncol=p, nrow=n)
+  for (i in 1:n)
+  {
+    for (j in 1:p)
+    {
+      for (k in 1:nc)
+      {
+        if (Group[i]==k)
+        {
+          SSE[i,j] = (X[i,j] - Mean.X[k,j])^2
+        }
+      }
+    }
+  }
+  SSE = sum(sum(SSE))
+  Rsq = (SST-SSE)/SST
+  icdrate = 1-Rsq
+  Pseudof = (Rsq/(c-1))/((icdrate)/(n-c))
+  SSB=SST-SSE
+  list(SST=SST, SSE=SSE, SSB=SSB, Rsq=Rsq, icdrate=icdrate, pseudof=Pseudof)
+}
+
+icdrate(new_data,length(new_data),5)
+
+# Lihat cluster assignment untuk setiap data
+cluster_assignments <- km_fit$cluster
+
+# Lihat keanggotaan fuzzy
+km_membership <- km_fit$membership
+
+# Gabungkan hasil clustering dengan data asli
+data_km_clusters <- cbind(runnum, Cluster = cluster_assignments)
+
+# Tampilkan hasil clustering
+print(head(data_km_clusters))
+#View(data_km_clusters)
+
+# Tampilkan keanggotaan fuzzy
+print(head(km_membership))
+#View(km_membership)
+
+
+# Menghitung Silhouette Index untuk K-means
+library(cluster)
+sil_kmeans = silhouette(km_fit$cluster, dist(data1))
+
+# Visualisasi Silhouette Index
+win.graph()
+fviz_silhouette(sil_kmeans)
+cat("Silhouette Index untuk K-means: ", mean(sil_kmeans[, 3]), "\n")
+
+# Visualisasi Cluster
+fviz_cluster(km_fit, data = data1)
+```
+
+##Fuzzy C Means manual
+```{r}
+# Memuat library yang dibutuhkan
+library(readxl)
+library(tibble)
+library(ggplot2)
+library(factoextra)
+library(e1071)  # Untuk fungsi cmeans
+
+# Membaca data
+runnum <- read_excel("E:/magang/Kominfo/VARIABEL MAGANG.xlsx", sheet = "var_fix")
+datanum <- data.frame(runnum)
+rownames(datanum) <- datanum$Kabupaten.Kota
+datanum <- datanum[, -1]
+
+# Standarisasi data
+data1 = scale(datanum)
+set.seed(123)
+# Fungsi untuk menghitung Pseudo-F dan ICDRate
+icdrate_fcm <- function(data, membership_matrix, nc) {
+  n <- nrow(data)
+  p <- ncol(data)
+  
+  # Hitung pusat kluster
+  centers <- t(membership_matrix) %*% data / colSums(membership_matrix)
+  
+  # Hitung SST
+  mean_data <- colMeans(data)
+  SST <- sum(rowSums((data - mean_data)^2))
+  
+  # Hitung SSE
+  SSE <- 0
+  for (i in 1:nc) {
+    SSE <- SSE + sum(membership_matrix[, i] * rowSums((data - centers[i, ])^2))
+  }
+  
+  # Hitung Rsq, ICDRate, dan Pseudo-F
+  Rsq <- (SST - SSE) / SST
+  ICDRate <- 1 - Rsq
+  PseudoF <- (Rsq / (nc - 1)) / (ICDRate / (n - nc))
+  
+  list(SST = SST, SSE = SSE, Rsq = Rsq, ICDRate = ICDRate, PseudoF = PseudoF)
+}
+
+# Jumlah kluster
+nc <- 5
+
+# Fuzzy C-Means Clustering
+fcm_result <- cmeans(data1, centers = nc, iter.max = 300, m = 2)
+
+# Menghitung Pseudo-F dan ICDRate
+result <- icdrate_fcm(data1, fcm_result$membership, nc)
+
+# Menampilkan hasil
+print(result)
+
+# Visualisasi cluster
+win.graph()
+fviz_cluster(list(data = data1, cluster = fcm_result$cluster), geom = "point")
+
+# Lihat cluster assignment untuk setiap data
+cluster_assignments <- fcm_result$cluster
+
+# Lihat keanggotaan fuzzy 63
+fcm_membership <- fcm_result$membership
+
+# Gabungkan hasil clustering dengan data asli
+data_fcm_clusters <- cbind(runnum, Cluster = cluster_assignments)
+
+# Tampilkan hasil clustering
+print(head(data_fcm_clusters))
+#View(data_fcm_clusters)
+library(openxlsx)
+#write.xlsx(data_fcm_clusters, "E:/magang/Kominfo/data_fcm_clusters.xlsx")
+
+# Tampilkan keanggotaan fuzzy
+print(head(fcm_membership))
+#View(fcm_membership)
+#write.xlsx(fcm_membership, "E:/magang/Kominfo/fcm_membership.xlsx")
+
+# Konversi keanggotaan fuzzy menjadi kluster berdasarkan keanggotaan tertinggi
+fcm_cluster <- max.col(fcm_result$membership)
+
+# Menghitung Silhouette Index
+sil_fcm <- silhouette(fcm_cluster, dist(data1))
+
+# Menampilkan hasil Silhouette Index
+summary(sil_fcm)
+
+# Plot Silhouette Index
+plot(sil_fcm, main = "Silhouette Plot for Fuzzy C-Means")
+
+# Nilai rata-rata Silhouette Index
+cat("Silhouette Index untuk Fuzzy C Means: ", mean(sil_fcm[, 3]), "\n")
+```
+
+## Fuzzy C Means elbow
+```{r}
+# Load libraries
+library(cluster)
+library(factoextra)
+library(NbClust)
+library(readxl)
+library(e1071)
+library(openxlsx)
+# Load data
+dataTA <- read_excel("E:/magang/Kominfo/VARIABEL MAGANG.xlsx", sheet = "var_fix")
+View(dataTA)
+data_final <- dataTA[, -1]
+View(data_final)
+# Menentukan jumlah klaster optimal dengan metode Elbow 
+set.seed(123) # Untuk konsistensi hasil
+fviz_nbclust(data_final, kmeans, method = "wss") +
+ geom_vline(xintercept = 3, linetype = 2) + # Tambahkan garis vertikal di sekitar jumlah klaster optimal (misalnya 3)
+ labs(title = "Elbow Method for Optimal K") +
+ theme_minimal()
+# Anda juga bisa menggunakan metode NbClust untuk mendapatkan jumlah klaster optimal
+# nbclust_result <- NbClust(data_final, distance = "euclidean", min.nc = 2, max.nc = 10, method = "kmeans")
+# fviz_nbclust(nbclust_result)
+# Kode ini akan menunjukkan jumlah klaster optimal berdasarkan beberapa metrik
+# Tentukan jumlah cluster yang diinginkan (misalnya 3 cluster)
+num_clusters <- 3
+# Lakukan clustering menggunakan Fuzzy C-Means
+fcm_result <- cmeans(data_final, centers = num_clusters, m = 2, iter.max = 500, verbose = TRUE)
+# Hasil dari clustering
+# Lihat cluster assignment untuk setiap data
+cluster_assignments <- fcm_result$cluster
+# Lihat keanggotaan fuzzy 63
+membership <- fcm_result$membership
+# Gabungkan hasil clustering dengan data asli
+data_with_clusters <- cbind(dataTA, Cluster = cluster_assignments)
+# Tampilkan hasil clustering
+print(head(data_with_clusters))
+View(data_with_clusters)
+# Tampilkan keanggotaan fuzzy
+print(head(membership))
+View(membership)
+# Hitung silhouette index menggunakan keanggotaan fuzzy dari Fuzzy C-Means
+diss_matrix <- dist(data_final) # Membuat matriks jarak dari data asli
+# Silhouette membutuhkan cluster label yang eksplisit
+silhouette_score <- silhouette(cluster_assignments, diss_matrix)
+# Tampilkan hasil silhouette score
+print(silhouette_score)
+# Plot silhouette
+fviz_silhouette(silhouette_score)
+# Rata-rata silhouette index
+avg_silhouette <- mean(silhouette_score[, 3])
+cat("Average Silhouette Index: ", avg_silhouette, "\n")
+# Menghitung Partition Coefficient (PC)
+n <- nrow(data_final) # Jumlah baris dalam data
+pc <- sum(membership^2) / n # Gunakan jumlah baris data untuk pembagian
+cat("Partition Coefficient (PC):", pc, "\n")
+```
+
+#Fuzzy C Means manual 2
+```{r}
+
+runnum = read_excel("E:/magang/Kominfo/VARIABEL MAGANG.xlsx", sheet = "var_fix")
+datanum<-data.frame(runnum)
+rownames(datanum) <- datanum$Kabupaten.Kota
+datanum <- datanum[, -1]
+
+
+# ===== STANDARISASI DATA =====
+data = scale(datanum)
+
+# Install library fclust
+#install.packages("fclust")
+library(fclust)
+
+# Fuzzy C-Means clustering
+fcm_fit <- FKM(data1, k = 6, m = 2, stand = FALSE)  # k adalah jumlah kluster, m adalah parameter fuzzy
+
+# Matriks keanggotaan
+membership_matrix <- fcm_fit$U
+
+# Centroid
+centroids <- fcm_fit$H
+
+# Fungsi untuk ICDRate dan Pseudo-F
+icdrate_fcm <- function(data, membership, centroids, m) {
+  n <- nrow(data)
+  k <- ncol(membership)
+  
+  # Hitung centroid berbasis fuzzy
+  SST <- 0
+  SSE <- 0
+  total_mean <- colMeans(data)
+  
+  for (i in 1:n) {
+    for (j in 1:k) {
+      SST <- SST + sum((data[i, ] - total_mean)^2)
+      SSE <- SSE + membership[i, j]^m * sum((data[i, ] - centroids[j, ])^2)
+    }
+  }
+  
+  Rsq <- (SST - SSE) / SST
+  icdrate <- 1 - Rsq
+  pseudo_f <- (Rsq / (k - 1)) / ((icdrate) / (n - k))
+  list(SST = SST, SSE = SSE, Rsq = Rsq, icdrate = icdrate, pseudof = pseudo_f)
+}
+
+# Hitung Pseudo-F dan ICDRate untuk hasil FCM
+result <- icdrate_fcm(data1, membership_matrix, centroids, m = 2)
+print(result)
+```
+
+## Fuzzy C Means Loop
+```{r}
+# Load libraries
+library(cluster)
+library(factoextra)
+library(NbClust)
+library(readxl)
+library(e1071)
+library(openxlsx)
+
+# Load data
+dataTA <- read_excel("E:/magang/Kominfo/VARIABEL MAGANG.xlsx", sheet = "var_fix")
+View(dataTA)
+data_final <- dataTA[, -1]
+View(data_final)
+
+#pseduo icdrate manual
+pseudo_f_icdrate_fcm <- function(data, centers, m = 2) {
+  # Lakukan clustering menggunakan Fuzzy C-Means
+  fcm_result <- cmeans(data, centers = centers, m = m, iter.max = 500)
+  membership <- fcm_result$membership
+  cluster_centers <- fcm_result$centers
+  
+  n <- nrow(data)
+  p <- ncol(data)
+  
+  # Rata-rata global
+  global_mean <- colMeans(data)
+  
+  # Total Sum of Squares (SST)
+  SST <- sum(rowSums((data - global_mean)^2))
+  
+  # Sum of Squares Error (SSE)
+  SSE <- 0
+  for (k in 1:centers) {
+    SSE <- SSE + sum(membership[, k]^m * rowSums((data - cluster_centers[k, ])^2))
+  }
+  
+  # R-squared
+  Rsq <- (SST - SSE) / SST
+  
+  # ICD Rate
+  icdrate <- 1 - Rsq
+  
+  # Pseudo-F
+  pseudo_f <- (Rsq / (centers - 1)) / (icdrate / (n - centers))
+  
+  list(SST = SST, SSE = SSE, Rsq = Rsq, icdrate = icdrate, PseudoF = pseudo_f)
+}
+
+#pseduo-f icdrate
+max_clusters <- 10
+pseudo_f_scores <- numeric(max_clusters)
+
+for (k in 2:max_clusters) {
+  result <- pseudo_f_icdrate_fcm(data_final, centers = k)
+  pseudo_f_scores[k] <- result$PseudoF
+}
+
+# Temukan jumlah cluster optimal
+optimal_clusters <- which.max(pseudo_f_scores[2:max_clusters]) + 1
+cat("Jumlah cluster optimal:", optimal_clusters, "\n")
+
+# Plot Pseudo-F
+plot(2:max_clusters, pseudo_f_scores[2:max_clusters], type = "b",
+     xlab = "Jumlah Cluster", ylab = "Pseudo-F",
+     main = "Pseudo-F untuk Fuzzy C-Means")
+
+
+# Lakukan clustering menggunakan Fuzzy C-Means
+fcm_result <- cmeans(data_final, centers = optimal_clusters, m = 3, iter.max = 500, verbose = TRUE)
+
+# Hasil dari clustering
+cluster_assignments <- fcm_result$cluster
+membership <- fcm_result$membership
+
+data_with_clusters <- cbind(dataTA, Cluster = cluster_assignments)
+
+# Tampilkan hasil clustering
+print(head(data_with_clusters))
+View(data_with_clusters)
+
+# Hitung silhouette index menggunakan keanggotaan fuzzy dari Fuzzy C-Means
+diss_matrix <- dist(data_final)
+silhouette_score <- silhouette(cluster_assignments, diss_matrix)
+
+# Tampilkan hasil silhouette score
+print(silhouette_score)
+
+# Plot silhouette
+fviz_silhouette(silhouette_score)
+
+# Rata-rata silhouette index
+avg_silhouette <- mean(silhouette_score[, 3])
+cat("Average Silhouette Index: ", avg_silhouette, "\n")
+
+# Menghitung Partition Coefficient (PC)
+n <- nrow(data_final)
+pc <- sum(membership^2) / n
+cat("Partition Coefficient (PC):", pc, "\n")
+```
+
+#K-Means Loop
+```{r}
+# Memuat library yang dibutuhkan
+library(readxl)
+library(ggplot2)
+
+# Membaca data
+runnum = read_excel("E:/magang/Kominfo/VARIABEL MAGANG.xlsx", sheet = "var_fix")
+datanum <- data.frame(runnum)
+rownames(datanum) <- datanum$Kabupaten.Kota
+datanum <- datanum[, -1]
+
+# Standarisasi data
+data1 = scale(datanum)
+
+# Fungsi ICDRate dan Pseudo-F
+icdrate = function(data, nc, centers) {
+  n = nrow(data)
+  p = ncol(data) - 1
+  X = data[, 1:p]  # Data tanpa kolom kluster
+  Group = as.factor(data[, p + 1])  # Kolom kluster
+  Mean.X = matrix(ncol = p, nrow = nc + 1)
+  
+  # Rata-rata per kelompok dan total
+  for (i in 1:nc) {
+    Mean.X[i, ] = colMeans(X[Group == i, , drop = FALSE])
+  }
+  Mean.X[nc + 1, ] = colMeans(X)
+  
+  # Menghitung SST
+  SST = sum(rowSums((X - Mean.X[nc + 1, ])^2))
+  
+  # Menghitung SSE
+  SSE = 0
+  for (i in 1:nc) {
+    SSE = SSE + sum(rowSums((X[Group == i, , drop = FALSE] - Mean.X[i, ])^2))
+  }
+  
+  Rsq = (SST - SSE) / SST
+  icdrate = 1 - Rsq
+  PseudoF = (Rsq / (centers - 1)) / (icdrate / (n - centers))
+  list(SST = SST, SSE = SSE, Rsq = Rsq, icdrate = icdrate, pseudof = PseudoF)
+}
+
+# Loop untuk mencari jumlah kluster optimal
+max_clusters = 10
+pseudo_f_scores = numeric(max_clusters)
+icd_rates = numeric(max_clusters)
+
+for (k in 2:max_clusters) {
+  km_fit = kmeans(data1, centers = k, iter.max = 300, nstart = 10)
+  new_data = cbind(data1, cluster = km_fit$cluster)
+  result = icdrate(new_data, nc = k, centers = k)
+  
+  pseudo_f_scores[k] = result$pseudof
+  icd_rates[k] = result$icdrate
+}
+
+# Visualisasi hasil
+plot(2:max_clusters, pseudo_f_scores[2:max_clusters], type = "b", pch = 19, col = "blue",
+     xlab = "Number of Clusters", ylab = "Pseudo-F Score", main = "Optimal Number of Clusters")
+lines(2:max_clusters, icd_rates[2:max_clusters], type = "b", pch = 19, col = "red")
+legend("topright", legend = c("Pseudo-F", "ICD Rate"), col = c("blue", "red"), pch = 19)
+
+
+```
+
